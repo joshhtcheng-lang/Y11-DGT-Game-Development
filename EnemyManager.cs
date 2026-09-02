@@ -4,127 +4,138 @@ using UnityEngine;
 
 public class EnemyManager : MonoBehaviour
 {
-    //EnemyManager and checkpoint setup to be accessible in the inspector and by other scripts
+    // making a global reference so other scripts can easily talk to this enemy manager
     public static EnemyManager main;
+
     public Transform spawnpoint;
     public Transform[] checkpoints;
 
-    //Enemy prefabs in Unity
-    [SerializeField] private GameObject enemy;
-    [SerializeField] private GameObject fastEnemy;
-    [SerializeField] private GameObject tankEnemy;
-    [SerializeField] private GameObject bossEnemy;
+    // different types of zombie prefabs that can spawn
+    [SerializeField] private GameObject zombie;
+    [SerializeField] private GameObject fastZombie;
+    [SerializeField] private GameObject tankZombie;
 
-    // Wave system variables
     [SerializeField] private int wave = 1;
     [SerializeField] private int enemyCount = 6;
-    [SerializeField] private float enemyCountRate = 1.2f;
+    [SerializeField] private float enemyCountRate = 0.2f;
     [SerializeField] private float spawnDelayMax = 1f;
     [SerializeField] private float spawnDelayMin = 0.75f;
-    
 
+    // spawn weight percentages or ratios for each type of zombie
     [SerializeField] private float zombieRate = 0.5f;
     [SerializeField] private float fastZombieRate = 0.4f;
     [SerializeField] private float tankZombieRate = 0.1f;
-    [SerializeField] private float bossZombieRate = 0.05f;
 
+    [SerializeField] private GameObject wavePanel;
 
+    [HideInInspector] public int enemiesAlive = 0;
+
+    private bool waveover = false;
     private bool wavedone = false;
     private List<GameObject> waveset = new List<GameObject>();
-    private int enemyLeft;
 
     private int zombieCount;
     private int fastZombieCount;
     private int tankZombieCount;
-    private int bossZombieCount;
 
-    // Checks if there are multiple EnemyManager and destroys any duplicates
-    void Awake()
+    private void Awake()
     {
-        main = this;
-    }
-
-    // Starts the first wave of enemies
-    void Start()
-    {
-        SetWave();
-    }
-    
-    // Keeps track of the number of enemies alive using the variable "activeEnemies" and will start next wave when all enemies are dead
-    private int activeEnemies = 0;
-
-    public void EnemyDestroyed()
-    {activeEnemies--;
-
-        if (activeEnemies <= 0 && wavedone)
+        // ensuring only one enemy manager exists, otherwise destroy the extra one (to prevent bugs and stuff)
+        if (main != null && main != this)
         {
-            wave++;
-            enemyCount = Mathf.RoundToInt(enemyCount * enemyCountRate);
-            SetWave();
+            Destroy(gameObject);
+            return;
+        }
+
+        main = this;
+
+        // automatically finding path checkpoints in the scene if they haven't been assigned manually
+        if (checkpoints == null || checkpoints.Length == 0 || checkpoints[0] == null)
+        {
+            GameObject pathObject = GameObject.Find("Path");
+            if (pathObject != null)
+            {
+                checkpoints = new Transform[pathObject.transform.childCount];
+                for (int i = 0; i < pathObject.transform.childCount; i++)
+                {
+                    checkpoints[i] = pathObject.transform.GetChild(i);
+                }
+            }
         }
     }
 
+    private void Start()
+    {
+        // kicking off the very first wave right when the game starts
+        SetWave();
+    }
 
+    private void Update()
+    {
+        // checking if all enemies are defeated and the wave is finished, then giving money and showing the win panel
+        if (!waveover && wavedone && enemiesAlive <= 0)
+        {
+            if (Player.main != null)
+            {
+                Player.main.money += 50 + (10 * wave);
+            }
 
-    // Increases the number of enemies per wave based on the wave number 
+            waveover = true;
+            if (wavePanel != null) wavePanel.SetActive(true);
+        }
+    }
+
     private void SetWave()
     {
+        wavedone = false;
+        enemiesAlive = 0;
+
+        // calculating how many of each zombie type should spawn based on rates and total count
         zombieCount = Mathf.RoundToInt(enemyCount * zombieRate);
         fastZombieCount = Mathf.RoundToInt(enemyCount * fastZombieRate);
         tankZombieCount = Mathf.RoundToInt(enemyCount * tankZombieRate);
-        bossZombieCount = Mathf.RoundToInt(enemyCount * bossZombieRate);
 
-        enemyLeft = zombieCount + fastZombieCount + tankZombieCount + bossZombieCount;
-        enemyCount = enemyLeft;
         waveset = new List<GameObject>();
 
-        for (int i = 0; i < zombieCount; i++)
-        {
-            waveset.Add(enemy);
-        }
+        // building the list of enemies for this wave
+        AddEnemiesToWave(zombie, zombieCount);
+        AddEnemiesToWave(fastZombie, fastZombieCount);
+        AddEnemiesToWave(tankZombie, tankZombieCount);
 
-        for (int i = 0; i < fastZombieCount; i++)
-        {
-            waveset.Add(fastEnemy);
-        }
-
-        for (int i = 0; i < tankZombieCount; i++)
-        {
-            waveset.Add(tankEnemy);
-        }
-
-        for (int i = 0; i < bossZombieCount; i++)
-        {
-            waveset.Add(bossEnemy);
-        }
-
-        wavedone = false;
-        StartCoroutine(Spawn());
+        // starting the coroutine to spawn them one by one
+        StartCoroutine(spawn());
     }
 
-    // Adds a random delay between spawning each enemy
-    IEnumerator Spawn()
+    // helper function to add multiple copies of a zombie prefab into our wave list
+    private void AddEnemiesToWave(GameObject prefab, int count)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            waveset.Add(prefab);
+        }
+    }
+
+    // looping through the wave list to spawn enemies with a random delay between each one
+    private IEnumerator spawn()
     {
         for (int i = 0; i < waveset.Count; i++)
         {
             Instantiate(waveset[i], spawnpoint.position, Quaternion.identity);
-            activeEnemies++;
+            enemiesAlive++;
             yield return new WaitForSeconds(Random.Range(spawnDelayMin, spawnDelayMax));
         }
 
         wavedone = true;
-
-
-        // Failsafe so that if there are no active enemies on the map, the next wave will start anyway
-        if (activeEnemies == 0)
-        {
-            wave ++;
-            enemyCount = Mathf.RoundToInt(enemyCount * enemyCountRate);
-            SetWave();
-        }
-
-
     }
-   
 
+    // triggered by the ui next wave button to increase difficulty and start the next round
+    public void NextWave()
+    {
+        wave++;
+        waveover = false;
+        enemyCount += Mathf.RoundToInt(enemyCount * enemyCountRate);
+
+        if (wavePanel != null) wavePanel.SetActive(false);
+        SetWave();
+    }
 }
